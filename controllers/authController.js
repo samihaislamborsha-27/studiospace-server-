@@ -107,7 +107,6 @@ export const register = async (req, res) => {
     }
 
     const users = getDB().collection("users");
-
     const existingUser = await users.findOne({ email: cleanEmail });
 
     if (existingUser) {
@@ -138,7 +137,6 @@ export const register = async (req, res) => {
     };
 
     const token = createToken(savedUser);
-
     res.cookie(COOKIE_NAME, token, cookieOptions);
 
     return res.status(201).json({
@@ -212,7 +210,6 @@ export const login = async (req, res) => {
     }
 
     const token = createToken(user);
-
     res.cookie(COOKIE_NAME, token, cookieOptions);
 
     return res.status(200).json({
@@ -251,4 +248,101 @@ export const getMe = async (req, res) => {
     success: true,
     user: publicUser(req.user),
   });
+};
+
+// PATCH /api/auth/profile
+export const updateProfile = async (req, res) => {
+  try {
+    const { name, photoURL } = req.body;
+
+    if (name !== undefined && typeof name !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid name.",
+      });
+    }
+
+    if (photoURL !== undefined && typeof photoURL !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid profile photo URL.",
+      });
+    }
+
+    const updates = {};
+
+    if (name !== undefined) {
+      const cleanName = name.trim();
+
+      if (cleanName.length < 2 || cleanName.length > 80) {
+        return res.status(400).json({
+          success: false,
+          message: "Name must contain between 2 and 80 characters.",
+        });
+      }
+
+      updates.name = cleanName;
+    }
+
+    if (photoURL !== undefined) {
+      const cleanPhotoURL = photoURL.trim();
+
+      if (cleanPhotoURL) {
+        try {
+          const parsedURL = new URL(cleanPhotoURL);
+
+          if (!["http:", "https:"].includes(parsedURL.protocol)) {
+            throw new Error("Invalid URL protocol");
+          }
+        } catch {
+          return res.status(400).json({
+            success: false,
+            message: "Please provide a valid profile photo URL.",
+          });
+        }
+      }
+
+      updates.photoURL = cleanPhotoURL;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "There are no profile changes to save.",
+      });
+    }
+
+    updates.updatedAt = new Date();
+
+    const users = getDB().collection("users");
+
+    await users.updateOne(
+      { _id: new ObjectId(req.user._id) },
+      { $set: updates }
+    );
+
+    const updatedUser = await users.findOne({
+      _id: new ObjectId(req.user._id),
+    });
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User account not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Your profile has been updated successfully.",
+      user: publicUser(updatedUser),
+    });
+  } catch (error) {
+    console.error("Profile update error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update your profile. Please try again.",
+    });
+  }
 };
