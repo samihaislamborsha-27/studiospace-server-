@@ -1,13 +1,7 @@
-﻿import "dotenv/config";
-import { MongoClient } from "mongodb";
+﻿import { MongoClient } from "mongodb";
+import "dotenv/config";
 
-const uri = process.env.MONGODB_URI;
-
-if (!uri) {
-  throw new Error("MONGODB_URI is missing from environment variables");
-}
-
-const client = new MongoClient(uri);
+const client = new MongoClient(process.env.MONGODB_URI);
 
 let database;
 
@@ -19,14 +13,37 @@ export const connectDB = async () => {
 
     await database.command({ ping: 1 });
 
-    // Enforce unique email addresses for user accounts.
     await database.collection("users").createIndex(
       { email: 1 },
       { unique: true }
     );
 
-    console.log("MongoDB connected successfully!");
-    console.log("User email index is ready.");
+    await database.collection("studios").createIndexes([
+      {
+        key: {
+          status: 1,
+          featured: -1,
+          createdAt: -1,
+        },
+        name: "studio_featured_listing",
+      },
+      {
+        key: {
+          ownerId: 1,
+          createdAt: -1,
+        },
+        name: "studio_owner_listing",
+      },
+      {
+        key: {
+          category: 1,
+          status: 1,
+        },
+        name: "studio_category_listing",
+      },
+    ]);
+
+    console.log("MongoDB connected successfully.");
 
     return database;
   } catch (error) {
@@ -37,7 +54,7 @@ export const connectDB = async () => {
 
 export const getDB = () => {
   if (!database) {
-    throw new Error("Database has not been initialized");
+    throw new Error("Database is not initialized.");
   }
 
   return database;
