@@ -6,6 +6,8 @@ import cookieParser from "cookie-parser";
 import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
+import studioRoutes from "./routes/studioRoutes.js";
+import bookingRoutes from "./routes/bookingRoutes.js";
 
 dotenv.config();
 
@@ -34,6 +36,24 @@ app.get("/", (_req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/uploads", uploadRoutes);
+app.use("/api/studios", studioRoutes);
+app.use("/api/bookings", bookingRoutes);
+
+app.use((_req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "API route not found.",
+  });
+});
+
+app.use((error, _req, res, _next) => {
+  console.error("API Error:", error);
+
+  res.status(error.status || 500).json({
+    success: false,
+    message: error.message || "Internal server error.",
+  });
+});
 
 const PORT = process.env.PORT || 5000;
 

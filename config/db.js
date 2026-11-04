@@ -43,6 +43,32 @@ export const connectDB = async () => {
       },
     ]);
 
+    await database.collection("bookings").createIndexes([
+      {
+        key: {
+          userId: 1,
+          createdAt: -1,
+        },
+        name: "booking_user_listing",
+      },
+      {
+        key: {
+          studioId: 1,
+          status: 1,
+          startAt: 1,
+          endAt: 1,
+        },
+        name: "booking_studio_schedule",
+      },
+      {
+        key: {
+          ownerId: 1,
+          createdAt: -1,
+        },
+        name: "booking_owner_listing",
+      },
+    ]);
+
     console.log("MongoDB connected successfully.");
 
     return database;

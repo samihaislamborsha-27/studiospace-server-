@@ -1,53 +1,30 @@
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import cookieParser from "cookie-parser";
+﻿import express from "express";
 
-import { connectDB } from "./config/db.js";
-import authRoutes from "./routes/authRoutes.js";
-import uploadRoutes from "./routes/uploadRoutes.js";
+import {
+  getStudios,
+  getFeaturedStudios,
+  getStudioDetails,
+  createStudio,
+  updateStudio,
+  deleteStudio,
+  getMyStudios,
+} from "../controllers/studioControllers.js";
 
-dotenv.config();
+import { verifyToken } from "../middlewares/verifyToken.js";
 
-if (!process.env.JWT_SECRET) {
-  throw new Error("JWT_SECRET is missing from your .env file.");
-}
+const router = express.Router();
 
-const app = express();
+// Public routes
+router.get("/featured", getFeaturedStudios);
+router.get("/", getStudios);
 
-app.use(
-  cors({
-    origin: process.env.CLIENT_URL,
-    credentials: true,
-  })
-);
+// Protected routes
+router.get("/owner/mine", verifyToken, getMyStudios);
+router.post("/", verifyToken, createStudio);
+router.patch("/:id", verifyToken, updateStudio);
+router.delete("/:id", verifyToken, deleteStudio);
 
-app.use(express.json());
-app.use(cookieParser());
+// Keep this dynamic route after named routes.
+router.get("/:id", getStudioDetails);
 
-app.get("/", (_req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Welcome to StudioSpace API!",
-  });
-});
-
-app.use("/api/auth", authRoutes);
-app.use("/api/uploads", uploadRoutes);
-
-const PORT = process.env.PORT || 5000;
-
-const startServer = async () => {
-  try {
-    await connectDB();
-
-    app.listen(PORT, () => {
-      console.log(`StudioSpace server running on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error("Server startup failed:", error.message);
-    process.exit(1);
-  }
-};
-
-startServer();
+export default router;
