@@ -1,4 +1,7 @@
-﻿import { MongoClient } from "mongodb";
+import dns from "node:dns";
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
+
+import { MongoClient } from "mongodb";
 import "dotenv/config";
 
 const client = new MongoClient(process.env.MONGODB_URI);

@@ -251,3 +251,246 @@ export const cancelBooking = async (req, res) => {
     return sendError(res, error, "Unable to cancel booking.");
   }
 };
+// GET /api/bookings/owner
+export const getOwnerBookings = async (req, res) => {
+  try {
+    const ownerIds = [req.user._id, String(req.user._id)];
+
+    if (ObjectId.isValid(String(req.user._id))) {
+      ownerIds.push(new ObjectId(String(req.user._id)));
+    }
+
+    const bookings = await bookingsCollection()
+      .find({ ownerId: { $in: ownerIds } })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    return res.status(200).json({
+      success: true,
+      data: bookings,
+    });
+  } catch (error) {
+    return sendError(res, error, "Unable to retrieve booking requests.");
+  }
+};
+
+// PATCH /api/bookings/:id/confirm
+export const confirmBooking = async (req, res) => {
+  let lockToken = null;
+  let studioId = null;
+
+  try {
+    const { id } = req.params;
+
+    if (!isValidId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID.",
+      });
+    }
+
+    const ownerIds = [req.user._id, String(req.user._id)];
+
+    if (ObjectId.isValid(String(req.user._id))) {
+      ownerIds.push(new ObjectId(String(req.user._id)));
+    }
+
+    const collection = bookingsCollection();
+    const bookingId = new ObjectId(id);
+
+    const booking = await collection.findOne({
+      _id: bookingId,
+      ownerId: { $in: ownerIds },
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking request not found.",
+      });
+    }
+
+    if (booking.status !== "Pending") {
+      return res.status(400).json({
+        success: false,
+        message: "Only pending booking requests can be confirmed.",
+      });
+    }
+
+    if (!ObjectId.isValid(String(booking.studioId))) {
+      return res.status(400).json({
+        success: false,
+        message: "The associated studio is invalid.",
+      });
+    }
+
+    studioId = new ObjectId(String(booking.studioId));
+
+    const studio = await studiosCollection().findOne({
+      _id: studioId,
+    });
+
+    if (!studio || String(studio.ownerId) !== String(req.user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to confirm this booking.",
+      });
+    }
+
+    // Acquire a short-lived atomic lock so two owners' requests
+    // for the same studio cannot be confirmed simultaneously.
+    lockToken = `${String(req.user._id)}-${new ObjectId().toString()}`;
+
+    const lockResult = await studiosCollection().updateOne(
+      {
+        _id: studioId,
+        $or: [
+          { bookingConfirmationLockUntil: { $exists: false } },
+          { bookingConfirmationLockUntil: null },
+          { bookingConfirmationLockUntil: { $lt: new Date() } },
+        ],
+      },
+      {
+        $set: {
+          bookingConfirmationLockToken: lockToken,
+          bookingConfirmationLockUntil: new Date(Date.now() + 30000),
+        },
+      }
+    );
+
+    if (lockResult.modifiedCount !== 1) {
+      return res.status(409).json({
+        success: false,
+        message: "Another booking is being confirmed for this studio. Please try again.",
+      });
+    }
+
+    const latestBooking = await collection.findOne({
+      _id: bookingId,
+      ownerId: { $in: ownerIds },
+      status: "Pending",
+    });
+
+    if (!latestBooking) {
+      return res.status(409).json({
+        success: false,
+        message: "This booking request has already been processed.",
+      });
+    }
+
+    const conflictingBooking = await collection.findOne({
+      studioId,
+      _id: { $ne: bookingId },
+      status: "Confirmed",
+      startAt: { $lt: latestBooking.endAt },
+      endAt: { $gt: latestBooking.startAt },
+    });
+
+    if (conflictingBooking) {
+      return res.status(409).json({
+        success: false,
+        message: "This booking overlaps with another confirmed booking.",
+      });
+    }
+
+    const updateResult = await collection.updateOne(
+      {
+        _id: bookingId,
+        ownerId: { $in: ownerIds },
+        status: "Pending",
+      },
+      {
+        $set: {
+          status: "Confirmed",
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    if (updateResult.modifiedCount !== 1) {
+      return res.status(409).json({
+        success: false,
+        message: "This booking request has already been processed.",
+      });
+    }
+
+    const updatedBooking = await collection.findOne({
+      _id: bookingId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Booking confirmed successfully.",
+      data: updatedBooking,
+    });
+  } catch (error) {
+    return sendError(res, error, "Unable to confirm booking.");
+  } finally {
+    if (lockToken && studioId) {
+      try {
+        await studiosCollection().updateOne(
+          {
+            _id: studioId,
+            bookingConfirmationLockToken: lockToken,
+          },
+          {
+            $unset: {
+              bookingConfirmationLockToken: "",
+              bookingConfirmationLockUntil: "",
+            },
+          }
+        );
+      } catch (releaseError) {
+        console.error("Unable to release booking confirmation lock:", releaseError);
+      }
+    }
+  }
+};
+
+// PATCH /api/bookings/:id/reject
+export const rejectBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!isValidId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid booking ID.",
+      });
+    }
+
+    const ownerIds = [req.user._id, String(req.user._id)];
+
+    if (ObjectId.isValid(String(req.user._id))) {
+      ownerIds.push(new ObjectId(String(req.user._id)));
+    }
+
+    const result = await bookingsCollection().updateOne(
+      {
+        _id: new ObjectId(id),
+        ownerId: { $in: ownerIds },
+        status: "Pending",
+      },
+      {
+        $set: {
+          status: "Rejected",
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Pending booking request not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Booking request rejected successfully.",
+    });
+  } catch (error) {
+    return sendError(res, error, "Unable to reject booking.");
+  }
+};
